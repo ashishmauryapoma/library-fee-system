@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow read/write to students collection
+    // TODO: Add authentication rules before going live
+    match /students/{studentId} {
+      allow read, write: if true;
+    }
+  }
+}
