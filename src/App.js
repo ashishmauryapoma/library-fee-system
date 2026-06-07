@@ -8,7 +8,7 @@ import StudentTable from './components/StudentTable';
 import AddStudentModal from './components/AddStudentModal';
 import WAReminder from './components/WAReminder';
 import Login from './components/Login';
-import { generateStudentId, computeStatus, buildWAMessage, openWhatsApp } from './utils';
+import { generateStudentId, computeStatus, buildWAMessage, openWhatsApp, formatDate } from './utils';
 
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem('lib_auth') === 'true');
@@ -23,7 +23,6 @@ export default function App() {
   const [waStudent, setWAStudent] = useState(null);
   const PAGE_SIZE = 10;
 
-  // Live sync from Firebase — only when logged in
   useEffect(() => {
     if (!isLoggedIn) return;
     const q = query(collection(db, 'students'), orderBy('createdAt', 'desc'));
@@ -102,16 +101,144 @@ export default function App() {
     });
   };
 
-  const exportCSV = () => {
-    const hdr = 'Student Code,Name,Phone,Admission Date,Fee,Plan,Seat,Status,Next Due,Total Paid';
-    const rows = students.map(s =>
-      [s.studentCode, s.name, s.phone, s.admissionDate, s.fee, s.plan, s.seat, s.status, s.nextDue, s.totalPaid || 0].join(',')
-    );
-    const csv = [hdr, ...rows].join('\n');
+  const exportPDF = () => {
+    const rows = students.map(s => ({
+      name: s.name || '',
+      admNo: s.studentCode || '',
+      mobile: s.phone || '',
+      joinDate: formatDate(s.admissionDate),
+      fee: `Rs.${Number(s.fee).toLocaleString('en-IN')}`,
+      plan: s.plan || '',
+      lastPaid: s.lastPaidAt ? formatDate(s.lastPaidAt) : '-',
+      nextDue: formatDate(s.nextDue),
+      amountDue: s.status === 'overdue' || s.status === 'due' ? `Rs.${Number(s.fee).toLocaleString('en-IN')}` : 'Rs.0',
+      status: s.status === 'paid' ? 'Paid' : s.status === 'due' ? 'Due' : 'Overdue',
+      remarks: s.remarks || '-',
+    }));
+
+    const cols = [
+      { label: 'Student Name', key: 'name', w: 100 },
+      { label: 'Admission No.', key: 'admNo', w: 70 },
+      { label: 'Mobile No.', key: 'mobile', w: 80 },
+      { label: 'Join Date', key: 'joinDate', w: 65 },
+      { label: 'Fee/Month', key: 'fee', w: 60 },
+      { label: 'Plan', key: 'plan', w: 55 },
+      { label: 'Last Payment Date', key: 'lastPaid', w: 80 },
+      { label: 'Next Due Date', key: 'nextDue', w: 75 },
+      { label: 'Amount Due', key: 'amountDue', w: 65 },
+      { label: 'Status', key: 'status', w: 55 },
+      { label: 'Remarks', key: 'remarks', w: 70 },
+    ];
+
+    const pageW = 841.89, pageH = 595.28;
+    const margin = 24;
+    const tableW = pageW - margin * 2;
+    const totalColW = cols.reduce((a, c) => a + c.w, 0);
+    const headerH = 32, rowH = 24;
+
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    svg.setAttribute('width', pageW);
+    svg.setAttribute('height', pageH);
+
+    const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    bg.setAttribute('width', pageW); bg.setAttribute('height', pageH); bg.setAttribute('fill', '#fff');
+    svg.appendChild(bg);
+
+    const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    title.setAttribute('x', pageW / 2); title.setAttribute('y', 18);
+    title.setAttribute('text-anchor', 'middle');
+    title.setAttribute('font-family', 'Arial, sans-serif');
+    title.setAttribute('font-size', '13'); title.setAttribute('font-weight', 'bold');
+    title.setAttribute('fill', '#0C447C');
+    title.textContent = `LibraryPro - Student Fee Report | ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}`;
+    svg.appendChild(title);
+
+    const tableY = 26;
+    let x = margin;
+
+    cols.forEach((col) => {
+      const colW = (col.w / totalColW) * tableW;
+
+      const hRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      hRect.setAttribute('x', x); hRect.setAttribute('y', tableY);
+      hRect.setAttribute('width', colW); hRect.setAttribute('height', headerH);
+      hRect.setAttribute('fill', '#0C447C');
+      hRect.setAttribute('stroke', '#fff'); hRect.setAttribute('stroke-width', '0.5');
+      svg.appendChild(hRect);
+
+      const words = col.label.split(' ');
+      const lines = words.length > 2
+        ? [words.slice(0, Math.ceil(words.length / 2)).join(' '), words.slice(Math.ceil(words.length / 2)).join(' ')]
+        : [col.label];
+      lines.forEach((line, li) => {
+        const ht = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        ht.setAttribute('x', x + colW / 2);
+        ht.setAttribute('y', tableY + (lines.length === 1 ? headerH / 2 + 4 : 10 + li * 12));
+        ht.setAttribute('text-anchor', 'middle');
+        ht.setAttribute('font-family', 'Arial, sans-serif');
+        ht.setAttribute('font-size', '8.5'); ht.setAttribute('font-weight', 'bold');
+        ht.setAttribute('fill', '#fff');
+        ht.textContent = line;
+        svg.appendChild(ht);
+      });
+
+      rows.forEach((row, ri) => {
+        const ry = tableY + headerH + ri * rowH;
+        const rowBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rowBg.setAttribute('x', x); rowBg.setAttribute('y', ry);
+        rowBg.setAttribute('width', colW); rowBg.setAttribute('height', rowH);
+        const statusColor = row.status === 'Paid' ? '#f0fdf4' : row.status === 'Due' ? '#fffbeb' : '#fff5f5';
+        rowBg.setAttribute('fill', ri % 2 === 0 ? (col.key === 'status' ? statusColor : '#f8f9fa') : '#fff');
+        rowBg.setAttribute('stroke', '#e0e0e0'); rowBg.setAttribute('stroke-width', '0.4');
+        svg.appendChild(rowBg);
+
+        let textColor = '#333';
+        if (col.key === 'status') {
+          textColor = row.status === 'Paid' ? '#166534' : row.status === 'Due' ? '#854F0B' : '#991b1b';
+        }
+
+        const td = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        td.setAttribute('x', x + colW / 2);
+        td.setAttribute('y', ry + rowH / 2 + 3.5);
+        td.setAttribute('text-anchor', 'middle');
+        td.setAttribute('font-family', 'Arial, sans-serif');
+        td.setAttribute('font-size', '8'); td.setAttribute('fill', textColor);
+        if (col.key === 'status') td.setAttribute('font-weight', 'bold');
+        let val = String(row[col.key]);
+        if (val.length > 14 && colW < 90) val = val.slice(0, 13) + '...';
+        td.textContent = val;
+        svg.appendChild(td);
+      });
+
+      x += colW;
+    });
+
+    const border = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    border.setAttribute('x', margin); border.setAttribute('y', tableY);
+    border.setAttribute('width', tableW);
+    border.setAttribute('height', headerH + rows.length * rowH);
+    border.setAttribute('fill', 'none');
+    border.setAttribute('stroke', '#0C447C'); border.setAttribute('stroke-width', '1');
+    svg.appendChild(border);
+
+    const footer = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    footer.setAttribute('x', pageW / 2);
+    footer.setAttribute('y', tableY + headerH + rows.length * rowH + 14);
+    footer.setAttribute('text-anchor', 'middle');
+    footer.setAttribute('font-family', 'Arial, sans-serif');
+    footer.setAttribute('font-size', '8'); footer.setAttribute('fill', '#999');
+    footer.textContent = `Total: ${rows.length}  |  Paid: ${rows.filter(r => r.status === 'Paid').length}  |  Due: ${rows.filter(r => r.status === 'Due').length}  |  Overdue: ${rows.filter(r => r.status === 'Overdue').length}`;
+    svg.appendChild(footer);
+
+    const blob = new Blob([svg.outerHTML], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = 'data:text/csv,' + encodeURIComponent(csv);
-    a.download = `students_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.href = url; a.download = `fee-report-${new Date().toISOString().slice(0, 10)}.svg`;
     a.click();
+    URL.revokeObjectURL(url);
+
+    alert('Report downloaded!\n\nTo save as PDF:\n1. Open the downloaded file in Chrome\n2. Press Ctrl+P\n3. Choose "Save as PDF" and click Save');
   };
 
   const filtered = useMemo(() => {
@@ -144,7 +271,7 @@ export default function App() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={exportCSV} style={{ ...inputStyle, cursor: 'pointer', background: '#fff' }}>⬇ Export CSV</button>
+            <button onClick={exportPDF} style={{ ...inputStyle, cursor: 'pointer', background: '#fff' }}>⬇ Export PDF</button>
             <button onClick={() => { setEditData(null); setShowAdd(true); }} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: '#0C447C', color: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>+ Add student</button>
             <button onClick={handleLogout} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #fca5a5', background: '#fff0f0', color: '#b91c1c', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>🔓 Logout</button>
           </div>
