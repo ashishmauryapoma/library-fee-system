@@ -7,11 +7,15 @@ import MetricCards from './components/MetricCards';
 import StudentTable from './components/StudentTable';
 import AddStudentModal from './components/AddStudentModal';
 import WAReminder from './components/WAReminder';
+import Login from './components/Login';
 import { generateStudentId, computeStatus, buildWAMessage, openWhatsApp } from './utils';
 
 export default function App() {
+  const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem('lib_auth') === 'true');
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  if (!isLoggedIn) return <Login onLogin={() => setIsLoggedIn(true)} />;
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterPlan, setFilterPlan] = useState('');
@@ -137,6 +141,7 @@ export default function App() {
           <div style={{ display: 'flex', gap: 10 }}>
             <button onClick={exportCSV} style={{ ...inputStyle, cursor: 'pointer', background: '#fff' }}>⬇ Export CSV</button>
             <button onClick={() => { setEditData(null); setShowAdd(true); }} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: '#0C447C', color: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>+ Add student</button>
+            <button onClick={() => { localStorage.removeItem('lib_auth'); setIsLoggedIn(false); }} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #fca5a5', background: '#fff0f0', color: '#b91c1c', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>🔓 Logout</button>
           </div>
         </div>
       </div>
