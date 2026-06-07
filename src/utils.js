@@ -1,22 +1,37 @@
 // Generate next due date from admission date
+// Logic: due date is always on the same day of month as admission
+// e.g. admitted 8 May → due 8 Jun → due 8 Jul → etc.
 export function getNextDueDate(admissionDate) {
   const now = new Date();
+  now.setHours(0, 0, 0, 0);
   const adm = new Date(admissionDate);
   const dayOfMonth = adm.getDate();
-  const due = new Date(now.getFullYear(), now.getMonth(), dayOfMonth);
-  if (due <= now) due.setMonth(due.getMonth() + 1);
+
+  // Find the next due date on or after today
+  let due = new Date(now.getFullYear(), now.getMonth(), dayOfMonth);
+
+  // If this month's due date has already passed, move to next month
+  if (due < now) {
+    due = new Date(now.getFullYear(), now.getMonth() + 1, dayOfMonth);
+  }
+
   return due.toISOString().slice(0, 10);
 }
 
-// Compute status based on next due date and paid flag
+// Compute status based on next due date
+// - overdue: due date has passed
+// - due: within 7 days of due date
+// - paid: more than 7 days away (fee not yet due)
 export function computeStatus(nextDue, manualStatus) {
   if (manualStatus === 'paid') return 'paid';
   const now = new Date();
+  now.setHours(0, 0, 0, 0);
   const due = new Date(nextDue);
-  const diff = Math.floor((due - now) / 86400000);
-  if (diff < 0) return 'overdue';
-  if (diff <= 5) return 'due';
-  return 'paid';
+  due.setHours(0, 0, 0, 0);
+  const diff = Math.floor((due - now) / 86400000); // days until due
+  if (diff < 0) return 'overdue';   // past due date
+  if (diff <= 7) return 'due';      // within 7 days → show "Due soon"
+  return 'paid';                     // more than 7 days away → not due yet
 }
 
 // Get initials from name
