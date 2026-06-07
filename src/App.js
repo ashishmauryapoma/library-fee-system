@@ -14,8 +14,6 @@ export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem('lib_auth') === 'true');
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  if (!isLoggedIn) return <Login onLogin={() => setIsLoggedIn(true)} />;
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterPlan, setFilterPlan] = useState('');
@@ -25,8 +23,9 @@ export default function App() {
   const [waStudent, setWAStudent] = useState(null);
   const PAGE_SIZE = 10;
 
-  // Live sync from Firebase
+  // Live sync from Firebase — only when logged in
   useEffect(() => {
+    if (!isLoggedIn) return;
     const q = query(collection(db, 'students'), orderBy('createdAt', 'desc'));
     const unsub = onSnapshot(q, snap => {
       const data = snap.docs.map(d => {
@@ -38,9 +37,20 @@ export default function App() {
       setLoading(false);
     });
     return unsub;
-  }, []);
+  }, [isLoggedIn]);
 
-  // Add student
+  const handleLogin = () => {
+    localStorage.setItem('lib_auth', 'true');
+    setIsLoggedIn(true);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('lib_auth');
+    setIsLoggedIn(false);
+    setStudents([]);
+    setLoading(true);
+  };
+
   const handleSave = async (formData) => {
     try {
       if (editData && editData.id) {
@@ -62,7 +72,6 @@ export default function App() {
     }
   };
 
-  // Mark as paid
   const handleMarkPaid = async (student) => {
     try {
       await updateDoc(doc(db, 'students', student.id), {
@@ -75,7 +84,6 @@ export default function App() {
     }
   };
 
-  // Delete student
   const handleDelete = async (student) => {
     if (!window.confirm(`Remove ${student.name}? This cannot be undone.`)) return;
     try {
@@ -85,19 +93,15 @@ export default function App() {
     }
   };
 
-  // Bulk WhatsApp reminder to all overdue
   const handleBulkRemind = () => {
     const overdue = students.filter(s => s.status === 'overdue');
     if (!overdue.length) { alert('No overdue students right now! 🎉'); return; }
     if (!window.confirm(`Send WhatsApp reminders to ${overdue.length} overdue student(s)?\n\nThis will open WhatsApp for each one.`)) return;
     overdue.forEach((s, i) => {
-      setTimeout(() => {
-        openWhatsApp(s.phone, buildWAMessage(s));
-      }, i * 1500);
+      setTimeout(() => openWhatsApp(s.phone, buildWAMessage(s)), i * 1500);
     });
   };
 
-  // Export CSV
   const exportCSV = () => {
     const hdr = 'Student Code,Name,Phone,Admission Date,Fee,Plan,Seat,Status,Next Due,Total Paid';
     const rows = students.map(s =>
@@ -106,11 +110,10 @@ export default function App() {
     const csv = [hdr, ...rows].join('\n');
     const a = document.createElement('a');
     a.href = 'data:text/csv,' + encodeURIComponent(csv);
-    a.download = `students_${new Date().toISOString().slice(0,10)}.csv`;
+    a.download = `students_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
   };
 
-  // Filter + search
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return students.filter(s => {
@@ -123,12 +126,14 @@ export default function App() {
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-
   const inputStyle = { padding: '8px 12px', borderRadius: 8, border: '1px solid #ddd', fontSize: 13, outline: 'none' };
+
+  if (!isLoggedIn) {
+    return <Login onLogin={handleLogin} />;
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f6fa', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
-      {/* Header */}
       <div style={{ background: '#fff', borderBottom: '1px solid #eee', padding: '0 24px' }}>
         <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 60 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -141,20 +146,17 @@ export default function App() {
           <div style={{ display: 'flex', gap: 10 }}>
             <button onClick={exportCSV} style={{ ...inputStyle, cursor: 'pointer', background: '#fff' }}>⬇ Export CSV</button>
             <button onClick={() => { setEditData(null); setShowAdd(true); }} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: '#0C447C', color: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>+ Add student</button>
-            <button onClick={() => { localStorage.removeItem('lib_auth'); setIsLoggedIn(false); }} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #fca5a5', background: '#fff0f0', color: '#b91c1c', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>🔓 Logout</button>
+            <button onClick={handleLogout} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #fca5a5', background: '#fff0f0', color: '#b91c1c', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>🔓 Logout</button>
           </div>
         </div>
       </div>
 
-      {/* Main */}
       <div style={{ maxWidth: 1100, margin: '0 auto', padding: '24px 24px' }}>
         {loading ? (
           <div style={{ textAlign: 'center', padding: 60, color: '#888' }}>Loading students...</div>
         ) : (
           <>
             <MetricCards students={students} />
-
-            {/* Controls */}
             <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
               <input
                 style={{ ...inputStyle, flex: 1, minWidth: 200 }}
@@ -178,7 +180,6 @@ export default function App() {
                 📲 Remind all overdue
               </button>
             </div>
-
             <StudentTable
               students={paginated}
               onEdit={s => { setEditData(s); setShowAdd(true); }}
@@ -186,8 +187,6 @@ export default function App() {
               onMarkPaid={handleMarkPaid}
               onWA={setWAStudent}
             />
-
-            {/* Pagination */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14, fontSize: 13, color: '#888' }}>
               <span>Showing {filtered.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length} students</span>
               <div style={{ display: 'flex', gap: 8 }}>
@@ -199,7 +198,6 @@ export default function App() {
         )}
       </div>
 
-      {/* Modals */}
       <AddStudentModal open={showAdd} onClose={() => { setShowAdd(false); setEditData(null); }} onSave={handleSave} editData={editData} />
       <WAReminder student={waStudent} onClose={() => setWAStudent(null)} />
     </div>
